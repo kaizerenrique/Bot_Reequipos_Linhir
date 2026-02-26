@@ -30,15 +30,58 @@ def parse_item_type(item_type: str) -> Tuple[str, int]:
 
 
 class PaginatedReportView(discord.ui.View):
-    """Vista con botones para navegar entre páginas (no se usa actualmente pero se mantiene)."""
-    # ... (código sin cambios, igual que antes)
-    # (omitido por brevedad, pero puedes mantener el código anterior)
+    """
+    Vista con botones para navegar entre páginas de un reporte.
+    Se adjunta al mensaje que contiene el embed de la primera página.
+    """
+
+    def __init__(self, pages: List[discord.Embed], timeout: float = 180.0):
+        super().__init__(timeout=timeout)
+        self.pages = pages
+        self.current_page = 0
+        self.update_buttons()
+
+    def update_buttons(self):
+        """Habilita/deshabilita botones según la página actual."""
+        self.first_page.disabled = self.current_page == 0
+        self.prev_page.disabled = self.current_page == 0
+        self.next_page.disabled = self.current_page == len(self.pages) - 1
+        self.last_page.disabled = self.current_page == len(self.pages) - 1
+
+    async def show_page(self, interaction: discord.Interaction):
+        """Muestra la página actual y actualiza los botones."""
+        embed = self.pages[self.current_page]
+        embed.set_footer(text=f"Página {self.current_page + 1} de {len(self.pages)}")
+        self.update_buttons()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⏪", style=discord.ButtonStyle.primary)
+    async def first_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = 0
+        await self.show_page(interaction)
+
+    @discord.ui.button(label="◀️", style=discord.ButtonStyle.primary)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+        await self.show_page(interaction)
+
+    @discord.ui.button(label="▶️", style=discord.ButtonStyle.primary)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < len(self.pages) - 1:
+            self.current_page += 1
+        await self.show_page(interaction)
+
+    @discord.ui.button(label="⏩", style=discord.ButtonStyle.primary)
+    async def last_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = len(self.pages) - 1
+        await self.show_page(interaction)
 
 
 class BattleReportView(discord.ui.View):
     """
     Vista principal con botones para generar reportes de una batalla.
-    Al hacer clic, los reportes se envían a los canales correspondientes.
+    Al hacer clic, los reportes paginados se envían a los canales correspondientes.
     """
 
     def __init__(self, battle_id: int, guild_config: Dict[str, Any]):
@@ -46,10 +89,12 @@ class BattleReportView(discord.ui.View):
         self.battle_id = battle_id
         self.guild_config = guild_config
 
-    async def _send_to_channel(self, interaction: discord.Interaction, embed: discord.Embed, channel_id_key: str):
+    async def _send_paginated_report(self, interaction: discord.Interaction, pages: List[discord.Embed], channel_id_key: str):
         """
-        Envía un embed al canal especificado en la configuración del gremio.
-        Usa interaction.followup para responder porque la interacción ya fue diferida.
+        Envía un reporte paginado al canal especificado.
+        - Obtiene el canal desde la configuración.
+        - Envía un mensaje con el primer embed y la vista de paginación.
+        - Informa al usuario mediante un mensaje efímero.
         """
         channel_id = self.guild_config.get(channel_id_key)
         if not channel_id:
@@ -57,14 +102,17 @@ class BattleReportView(discord.ui.View):
             return
 
         try:
-            # Intentar obtener el canal desde la caché primero (más rápido y evita problemas de permisos)
+            # Intentar obtener el canal (primero desde caché, luego fetch)
             channel = interaction.guild.get_channel(int(channel_id))
             if not channel:
-                # Si no está en caché, intentar con fetch (puede dar 403 si no tiene permisos, pero lo capturamos)
                 channel = await interaction.guild.fetch_channel(int(channel_id))
-            
-            await channel.send(embed=embed)
+
+            # Crear vista con las páginas
+            view = PaginatedReportView(pages)
+            # Enviar mensaje con la primera página
+            await channel.send(embed=pages[0], view=view)
             await interaction.followup.send(f"✅ Reporte enviado a {channel.mention}", ephemeral=True)
+
         except ValueError:
             await interaction.followup.send("❌ ID de canal inválido. Verifica la configuración.", ephemeral=True)
         except discord.Forbidden:
@@ -76,12 +124,12 @@ class BattleReportView(discord.ui.View):
         except discord.NotFound:
             await interaction.followup.send("❌ El canal no existe. Verifica la configuración.", ephemeral=True)
         except Exception as e:
-            logger.error(f"Error enviando a canal {channel_id}: {e}")
+            logger.error(f"Error enviando reporte paginado a canal {channel_id}: {e}")
             await interaction.followup.send("❌ Error al enviar el reporte al canal.", ephemeral=True)
 
     @discord.ui.button(label="📋 Reporte por jugador", style=discord.ButtonStyle.primary)
     async def individual_report(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Genera un reporte detallado por jugador y lo envía al canal individual."""
+        """Genera un reporte detallado por jugador y lo envía al canal individual con paginación."""
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             muertes = database.obtener_muertes_por_batalla(self.battle_id)
@@ -95,7 +143,7 @@ class BattleReportView(discord.ui.View):
                 color=discord.Color.blue()
             )
             field_count = 0
-            MAX_FIELDS_PER_PAGE = 10
+            MAX_FIELDS_PER_PAGE = 10  # Límite conservador (Discord permite 25, pero para evitar problemas)
 
             for muerte in muertes:
                 items = database.obtener_items_por_muerte(muerte['id'])
@@ -107,6 +155,7 @@ class BattleReportView(discord.ui.View):
 
                 value = "\n".join(item_lines) if item_lines else "Sin items registrados"
 
+                # Si alcanzamos el límite de campos, guardamos la página actual y empezamos una nueva
                 if field_count >= MAX_FIELDS_PER_PAGE:
                     pages.append(current_embed)
                     current_embed = discord.Embed(
@@ -122,6 +171,7 @@ class BattleReportView(discord.ui.View):
                 )
                 field_count += 1
 
+            # Añadir la última página si tiene contenido
             if field_count > 0:
                 pages.append(current_embed)
 
@@ -129,21 +179,8 @@ class BattleReportView(discord.ui.View):
                 await interaction.followup.send("No hay datos para mostrar.", ephemeral=True)
                 return
 
-            # Enviar la primera página al canal individual
-            await self._send_to_channel(interaction, pages[0], 'canal_reportes_individual')
-
-            # Si hay más páginas, las enviamos como mensajes adicionales en el mismo canal
-            if len(pages) > 1:
-                channel_id = self.guild_config.get('canal_reportes_individual')
-                if channel_id:
-                    try:
-                        channel = interaction.guild.get_channel(int(channel_id))
-                        if not channel:
-                            channel = await interaction.guild.fetch_channel(int(channel_id))
-                        for embed in pages[1:]:
-                            await channel.send(embed=embed)
-                    except Exception as e:
-                        logger.error(f"Error enviando páginas adicionales: {e}")
+            # Enviar reporte paginado al canal individual
+            await self._send_paginated_report(interaction, pages, 'canal_reportes_individual')
 
         except Exception as e:
             logger.error(f"Error en individual_report: {e}", exc_info=True)
@@ -151,7 +188,7 @@ class BattleReportView(discord.ui.View):
 
     @discord.ui.button(label="🛒 Resumen de compras", style=discord.ButtonStyle.secondary)
     async def summary_report(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Genera un resumen de compras y lo envía al canal de resúmenes."""
+        """Genera un resumen de compras y lo envía al canal de resúmenes con paginación."""
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             items_agrupados = database.obtener_items_agrupados_por_batalla(self.battle_id)
@@ -161,12 +198,13 @@ class BattleReportView(discord.ui.View):
 
             pages = []
             current_lines = []
-            MAX_LINES_PER_PAGE = 20
+            MAX_LINES_PER_PAGE = 20  # Ajustable según longitud de líneas
 
             for item in items_agrupados:
                 nombre = await self._get_item_name(item['item_type'], item['calidad'])
                 line = f"• {nombre} x{item['total_cantidad']}"
 
+                # Si alcanzamos el límite de líneas, creamos una nueva página
                 if len(current_lines) >= MAX_LINES_PER_PAGE:
                     embed = discord.Embed(
                         title=f"🛒 Lista de compras - Batalla {self.battle_id}",
@@ -178,6 +216,7 @@ class BattleReportView(discord.ui.View):
 
                 current_lines.append(line)
 
+            # Última página
             if current_lines:
                 embed = discord.Embed(
                     title=f"🛒 Lista de compras - Batalla {self.battle_id}",
@@ -190,21 +229,8 @@ class BattleReportView(discord.ui.View):
                 await interaction.followup.send("No hay datos para mostrar.", ephemeral=True)
                 return
 
-            # Enviar primera página al canal de resúmenes
-            await self._send_to_channel(interaction, pages[0], 'canal_resumen')
-
-            # Enviar el resto de páginas si las hay
-            if len(pages) > 1:
-                channel_id = self.guild_config.get('canal_resumen')
-                if channel_id:
-                    try:
-                        channel = interaction.guild.get_channel(int(channel_id))
-                        if not channel:
-                            channel = await interaction.guild.fetch_channel(int(channel_id))
-                        for embed in pages[1:]:
-                            await channel.send(embed=embed)
-                    except Exception as e:
-                        logger.error(f"Error enviando páginas adicionales: {e}")
+            # Enviar reporte paginado al canal de resúmenes
+            await self._send_paginated_report(interaction, pages, 'canal_resumen')
 
         except Exception as e:
             logger.error(f"Error en summary_report: {e}", exc_info=True)
@@ -219,6 +245,7 @@ class BattleReportView(discord.ui.View):
         if item_data:
             nombre = albion_api.get_localized_name(item_data, idioma)
         else:
+            # Fallback: intentar con el tipo completo (por si acaso)
             item_data = await albion_api.get_item_data(item_type, idioma)
             nombre = albion_api.get_localized_name(item_data, idioma) if item_data else item_type
             logger.warning(f"No se pudo obtener nombre para item base {base_type}, usando fallback {item_type}")
