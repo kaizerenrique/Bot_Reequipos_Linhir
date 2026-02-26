@@ -1,16 +1,44 @@
-import asyncio
+# main.py
 import discord
-from discord_bot.bot import LinhirBot
-from tasks.monitor import Monitor
+from discord.ext import commands
+import asyncio
+import logging
 from config import DISCORD_TOKEN
+from tasks.monitor import Monitor
+
+# Configuración de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+class LinhirBot(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True  # Necesario si usas comandos con prefijo, pero para slash commands no es obligatorio
+        super().__init__(command_prefix="!", intents=intents)
+
+    async def setup_hook(self):
+        """Carga los cogs y sincroniza los comandos."""
+        # Cargar el cog de comandos
+        await self.load_extension("discord_bot.commands")
+        logger.info("Cog de comandos cargado.")
+
+        # Sincronizar comandos de barra globalmente
+        await self.tree.sync()
+        logger.info("Comandos de barra sincronizados.")
+
+    async def on_ready(self):
+        logger.info(f"Bot conectado como {self.user} (ID: {self.user.id})")
+        logger.info(f"En {len(self.guilds)} servidores.")
+
+        # Iniciar el monitor de batallas
+        monitor = Monitor(self)
+        monitor.check_new_battles.start()
+        logger.info("Monitor de batallas iniciado.")
 
 bot = LinhirBot()
-monitor = Monitor(bot)
-
-@bot.event
-async def on_ready():
-    # Iniciar tarea de monitoreo
-    monitor.check_new_battles.start()
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
