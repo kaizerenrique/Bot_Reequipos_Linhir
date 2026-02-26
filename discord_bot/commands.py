@@ -7,6 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class ConfigCog(commands.Cog):
     """Comandos de configuración del bot."""
 
@@ -37,7 +38,6 @@ class ConfigCog(commands.Cog):
         canal_resumen: discord.TextChannel
     ):
         """Registra un nuevo gremio en la base de datos."""
-        # Verificar permisos de administrador
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Necesitas permisos de administrador.", ephemeral=True)
             return
@@ -71,11 +71,10 @@ class ConfigCog(commands.Cog):
     @app_commands.command(name="pendientes", description="Muestra las muertes pendientes de reequipo")
     async def pendientes(self, interaction: discord.Interaction):
         """Lista las muertes pendientes del gremio asociado a este servidor."""
-        # Obtener el gremio registrado para este servidor
         discord_guild_id = str(interaction.guild_id)
-        # Aquí deberías consultar la base de datos para obtener las muertes pendientes
-        # Por ahora, un mensaje de placeholder
+        # Aquí iría la lógica para consultar muertes pendientes
         await interaction.response.send_message("🚧 Función en desarrollo.", ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(ConfigCog(bot))

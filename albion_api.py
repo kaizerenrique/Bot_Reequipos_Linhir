@@ -38,18 +38,14 @@ async def fetch_json(session: aiohttp.ClientSession, url: str) -> Optional[Any]:
 
 async def get_battles(guild_id: str, limit: int = 50, offset: int = 0,
                       range: str = 'day', sort: str = 'recent') -> Optional[List[Dict]]:
-    """
-    Obtiene lista de batallas para un gremio específico.
-    """
+    """Obtiene lista de batallas para un gremio específico."""
     url = f"{BASE_URL}/battles?range={range}&offset={offset}&limit={limit}&sort={sort}&guildId={guild_id}"
     async with aiohttp.ClientSession() as session:
         return await fetch_json(session, url)
 
 
 async def get_battle_events(battle_id: int, limit: int = 51, offset: int = 0) -> Optional[List[Dict]]:
-    """
-    Obtiene los eventos (muertes) de una batalla específica.
-    """
+    """Obtiene los eventos (muertes) de una batalla específica."""
     url = f"{BASE_URL}/events/battle/{battle_id}?offset={offset}&limit={limit}"
     async with aiohttp.ClientSession() as session:
         return await fetch_json(session, url)
@@ -63,7 +59,6 @@ async def get_item_data(item_type: str, idioma: str = 'es') -> Optional[Dict]:
     """
     now = datetime.now()
 
-    # Verificar caché
     if item_type in item_cache:
         entry = item_cache[item_type]
         if now - entry['timestamp'] < CACHE_DURATION:
@@ -74,7 +69,6 @@ async def get_item_data(item_type: str, idioma: str = 'es') -> Optional[Dict]:
         else:
             del item_cache[item_type]
 
-    # Consultar API
     url = f"{BASE_URL}/items/{item_type}/data"
     async with aiohttp.ClientSession() as session:
         data = await fetch_json(session, url)

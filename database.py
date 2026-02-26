@@ -3,6 +3,7 @@ import mysql.connector
 from config import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
 from typing import List, Dict, Any, Optional
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +26,11 @@ def convertir_fecha_albion(fecha_str: Optional[str]) -> Optional[str]:
     """
     if not fecha_str:
         return None
-    # Reemplazar 'Z' por '+00:00' para que fromisoformat lo entienda
     fecha_iso = fecha_str.replace('Z', '+00:00')
     try:
-        from datetime import datetime
         dt = datetime.fromisoformat(fecha_iso)
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     except ValueError:
-        # Fallback: quitar la parte después del punto y la Z
         return fecha_str.split('.')[0].replace('T', ' ')
 
 
